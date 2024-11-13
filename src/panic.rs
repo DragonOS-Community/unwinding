@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use core::any::Any;
+use core::marker::PhantomData;
 use core::mem::MaybeUninit;
+use core::ptr::null_mut;
 
 use crate::abi::*;
 #[cfg(feature = "panic-handler")]
@@ -60,7 +62,34 @@ unsafe impl Exception for RustPanic {
 }
 
 pub fn begin_panic(payload: Box<dyn Any + Send>) -> UnwindReasonCode {
-    crate::panicking::begin_panic(RustPanic(payload, DropGuard))
+    crate::panicking::begin_panic(RustPanic(payload, DropGuard), None, null_mut())
+}
+
+pub fn begin_panic_with_hook<T: UserUnwindTrace>(
+    payload: Box<dyn Any + Send>,
+    arg: *mut T::Arg,
+) -> UnwindReasonCode {
+    crate::panicking::begin_panic(
+        RustPanic(payload, DropGuard),
+        Some(DefaultUnwindTrace::<T>::user_unwind_trace),
+        arg as _,
+    )
+}
+
+pub trait UserUnwindTrace {
+    type Arg;
+    fn trace(ctx: &UnwindContext<'_>, arg: *mut Self::Arg) -> UnwindReasonCode;
+}
+
+struct DefaultUnwindTrace<T>(PhantomData<T>);
+
+impl<T: UserUnwindTrace> DefaultUnwindTrace<T> {
+    extern "C" fn user_unwind_trace(
+        ctx: &UnwindContext<'_>,
+        arg: *mut core::ffi::c_void,
+    ) -> UnwindReasonCode {
+        T::trace(ctx, arg as *mut T::Arg)
+    }
 }
 
 pub fn catch_unwind<R, F: FnOnce() -> R>(f: F) -> Result<R, Box<dyn Any + Send>> {

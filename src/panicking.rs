@@ -9,7 +9,11 @@ pub unsafe trait Exception {
     unsafe fn unwrap(ex: *mut UnwindException) -> Self;
 }
 
-pub fn begin_panic<E: Exception>(exception: E) -> UnwindReasonCode {
+pub fn begin_panic<E: Exception>(
+    exception: E,
+    trace: Option<UnwindTraceFn>,
+    trace_argument: *mut core::ffi::c_void,
+) -> UnwindReasonCode {
     unsafe extern "C" fn exception_cleanup<E: Exception>(
         _unwind_code: UnwindReasonCode,
         exception: *mut UnwindException,
@@ -21,7 +25,7 @@ pub fn begin_panic<E: Exception>(exception: E) -> UnwindReasonCode {
     unsafe {
         (*ex).exception_class = u64::from_ne_bytes(E::CLASS);
         (*ex).exception_cleanup = Some(exception_cleanup::<E>);
-        _Unwind_RaiseException(ex)
+        _Unwind_RaiseException(ex, trace, trace_argument)
     }
 }
 
