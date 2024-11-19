@@ -4,6 +4,7 @@ mod frame;
 
 use core::ffi::c_void;
 use core::ptr;
+use core::ptr::null_mut;
 use gimli::Register;
 
 use crate::abi::*;
@@ -151,6 +152,8 @@ macro_rules! try2 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn _Unwind_RaiseException(
     exception: *mut UnwindException,
+    trace: Option<UnwindTraceFn>,
+    trace_argument: *mut core::ffi::c_void,
 ) -> UnwindReasonCode {
     with_context(|saved_ctx| {
         // Phase 1: Search for handler
@@ -158,6 +161,21 @@ pub unsafe extern "C-unwind" fn _Unwind_RaiseException(
         let mut signal = false;
         loop {
             if let Some(frame) = try1!(Frame::from_context(&ctx, signal)) {
+                if let Some(trace) = trace {
+                    let code = trace(
+                        &UnwindContext {
+                            frame: Some(&frame),
+                            ctx: &mut ctx,
+                            signal,
+                        },
+                        trace_argument,
+                    );
+                    match code {
+                        UnwindReasonCode::NO_REASON => (),
+                        _ => return UnwindReasonCode::FATAL_PHASE1_ERROR,
+                    }
+                }
+
                 if let Some(personality) = frame.personality() {
                     let result = unsafe {
                         personality(
@@ -367,7 +385,7 @@ pub unsafe extern "C-unwind" fn _Unwind_Resume_or_Rethrow(
     exception: *mut UnwindException,
 ) -> UnwindReasonCode {
     let stop = match unsafe { (*exception).private_1 } {
-        None => return unsafe { _Unwind_RaiseException(exception) },
+        None => return unsafe { _Unwind_RaiseException(exception, None, null_mut()) },
         Some(v) => v,
     };
 

@@ -146,6 +146,7 @@ fn find_eh_action(
     Ok(EHAction::Terminate)
 }
 
+#[cfg(target_os = "none")]
 #[lang = "eh_personality"]
 unsafe fn rust_eh_personality(
     version: c_int,
